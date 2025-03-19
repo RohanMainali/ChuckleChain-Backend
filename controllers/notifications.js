@@ -34,21 +34,30 @@ exports.getNotifications = async (req, res) => {
 
     console.log(`Retrieved ${notifications.length} notifications`)
 
-    // Map the notifications to the expected format
-    const formattedNotifications = notifications.map((notification) => ({
-      id: notification._id,
-      type: notification.type,
-      user: {
-        id: notification.sender?._id || "deleted-user",
-        username: notification.sender?.username || "Deleted User",
-        profilePicture: notification.sender?.profilePicture || "/placeholder.svg?height=50&width=50",
-      },
-      content: notification.content,
-      postId: notification.post ? notification.post._id : null,
-      postText: notification.post ? notification.post.text : null,
-      read: notification.read,
-      timestamp: notification.createdAt,
-    }))
+    // Map the notifications to the expected format with null checks
+    const formattedNotifications = notifications.map((notification) => {
+      // Check if sender exists, if not provide default values
+      const sender = notification.sender || {
+        _id: "deleted-user",
+        username: "Deleted User",
+        profilePicture: "/placeholder.svg?height=50&width=50",
+      }
+
+      return {
+        id: notification._id,
+        type: notification.type,
+        user: {
+          id: sender._id || "deleted-user",
+          username: sender.username || "Deleted User",
+          profilePicture: sender.profilePicture || "/placeholder.svg?height=50&width=50",
+        },
+        content: notification.content || "",
+        postId: notification.post ? notification.post._id : null,
+        postText: notification.post ? notification.post.text : null,
+        read: notification.read || false,
+        timestamp: notification.createdAt,
+      }
+    })
 
     res.status(200).json({
       success: true,
