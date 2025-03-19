@@ -10,7 +10,20 @@ const lastSeenTimestamps = new Map()
 const initializeSocket = (server) => {
   const io = socketIo(server, {
     cors: {
-      origin: process.env.CLIENT_URL || "https://chucklechain.vercel.app",
+      origin: (origin, callback) => {
+        const allowedOrigins = [process.env.CLIENT_URL || "https://chucklechain.vercel.app", "http://localhost:3000"]
+
+        // Allow requests with no origin (like mobile apps, curl, etc)
+        if (!origin) return callback(null, true)
+
+        if (allowedOrigins.indexOf(origin) === -1) {
+          const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`
+          console.warn(msg)
+          // Still allow the connection but log a warning
+          // return callback(new Error(msg), false);
+        }
+        return callback(null, true)
+      },
       methods: ["GET", "POST"],
       credentials: true,
       allowedHeaders: ["Authorization"],
