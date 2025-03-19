@@ -83,10 +83,15 @@ exports.login = async (req, res) => {
 // @route   GET /api/auth/logout
 // @access  Private
 exports.logout = (req, res) => {
-  res.cookie("token", "none", {
+  // Updated cookie options for cross-domain
+  const cookieOptions = {
     expires: new Date(Date.now() + 10 * 1000),
     httpOnly: true,
-  })
+    secure: true,
+    sameSite: "none",
+  }
+
+  res.cookie("token", "none", cookieOptions)
 
   res.status(200).json({
     success: true,
@@ -118,9 +123,12 @@ const sendTokenResponse = (user, statusCode, res) => {
   // Create token
   const token = user.getSignedJwtToken()
 
+  // Cookie options for cross-domain
   const options = {
     expires: new Date(Date.now() + process.env.JWT_EXPIRE.match(/\d+/)[0] * 24 * 60 * 60 * 1000),
     httpOnly: true,
+    secure: true, // Required for cross-domain cookies
+    sameSite: "none", // Required for cross-domain cookies
   }
 
   // Remove password from output
