@@ -7,6 +7,10 @@ const http = require("http")
 const path = require("path")
 const { initializeSocket } = require("./socket")
 
+// Add these imports at the top of the file
+const errorHandler = require("./middleware/error")
+const logger = require("./middleware/logger")
+
 // Load environment variables
 dotenv.config()
 
@@ -31,13 +35,27 @@ app.set("io", io)
 app.use(express.json({ limit: "50mb" }))
 app.use(cookieParser())
 
+// Add the logger middleware before the routes
+app.use(logger)
+
 // Updated CORS configuration for production
+const allowedOrigins = [process.env.CLIENT_URL || "https://chucklechain.vercel.app", "http://localhost:3000"]
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "https://chucklechain.vercel.app",
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, etc)
+      if (!origin) return callback(null, true)
+
+      if (allowedOrigins.indexOf(origin) === -1) {
+        const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`
+        return callback(new Error(msg), false)
+      }
+      return callback(null, true)
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   }),
 )
 
@@ -68,6 +86,10 @@ app.get("/", (req, res) => {
     endpoints: ["/api/auth", "/api/users", "/api/posts", "/api/notifications", "/api/messages", "/api/upload"],
   })
 })
+
+// Add the error handler middleware after the routes
+// Add this at the end of the file, after all routes
+app.use(errorHandler)
 
 // Start server
 server.listen(PORT, () => {
