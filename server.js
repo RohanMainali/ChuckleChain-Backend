@@ -30,11 +30,12 @@ app.set("io", io)
 // Middleware
 app.use(express.json({ limit: "50mb" }))
 app.use(cookieParser())
+// In your server.js file
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: ["http://localhost:3000", "https://your-frontend-domain.vercel.app"],
     credentials: true,
-  }),
+  })
 )
 
 // Connect to MongoDB
