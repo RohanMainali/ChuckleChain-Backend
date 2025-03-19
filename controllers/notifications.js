@@ -6,8 +6,15 @@ const User = require("../models/User");
 // @access  Private
 exports.getNotifications = async (req, res) => {
   try {
+    // Add pagination
+    const page = Number.parseInt(req.query.page, 10) || 1;
+    const limit = Number.parseInt(req.query.limit, 10) || 20;
+    const skip = (page - 1) * limit;
+
     const notifications = await Notification.find({ recipient: req.user.id })
       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .populate({
         path: "sender",
         select: "username profilePicture",
@@ -35,6 +42,7 @@ exports.getNotifications = async (req, res) => {
       })),
     });
   } catch (error) {
+    console.error("Error fetching notifications:", error);
     res.status(500).json({
       success: false,
       message: error.message,
