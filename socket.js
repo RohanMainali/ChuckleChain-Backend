@@ -36,7 +36,20 @@ const initializeSocket = (server) => {
   io.use(async (socket, next) => {
     try {
       console.log("Socket authentication attempt")
-      const token = socket.handshake.auth.token || socket.handshake.headers.cookie?.split("token=")[1]?.split(";")[0]
+
+      // Check for token in different places
+      const authHeader = socket.handshake.auth.token || socket.handshake.headers.authorization
+      const cookieToken = socket.handshake.headers.cookie?.split("token=")[1]?.split(";")[0]
+
+      let token
+
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        token = authHeader.split(" ")[1]
+      } else if (authHeader) {
+        token = authHeader
+      } else if (cookieToken) {
+        token = cookieToken
+      }
 
       if (!token) {
         console.log("No token found in socket connection")
