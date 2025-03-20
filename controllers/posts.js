@@ -122,36 +122,53 @@ exports.getPosts = async (req, res) => {
       .populate({
         path: "comments.user",
         select: "username profilePicture",
+      })
+      .populate({
+        path: "taggedUsers",
+        select: "_id username",
       });
 
     res.status(200).json({
       success: true,
-      data: posts.map((post) => ({
-        id: post._id,
-        text: post.text,
-        image: post.image,
-        createdAt: post.createdAt,
-        likes: post.likeCount,
-        isLiked: post.likes.includes(req.user.id),
-        comments: post.comments.map((comment) => ({
-          id: comment._id,
-          user: comment.user.username,
-          profilePicture: comment.user.profilePicture,
-          text: comment.text,
-          replyTo: comment.replyTo,
-          timestamp: comment.createdAt,
-          likeCount: comment.likes ? comment.likes.length : 0,
-          isLiked: comment.likes ? comment.likes.includes(req.user.id) : false,
-        })),
-        category: post.category,
-        memeTexts: post.memeTexts,
-        captionPlacement: post.captionPlacement,
-        user: {
-          id: post.user._id,
-          username: post.user.username,
-          profilePicture: post.user.profilePicture,
-        },
-      })),
+      data: posts.map((post) => {
+        // Format tagged users
+        const formattedTaggedUsers = post.taggedUsers
+          ? post.taggedUsers.map((user) => ({
+              id: user._id,
+              username: user.username,
+            }))
+          : [];
+
+        return {
+          id: post._id,
+          text: post.text,
+          image: post.image,
+          createdAt: post.createdAt,
+          likes: post.likeCount,
+          isLiked: post.likes.includes(req.user.id),
+          comments: post.comments.map((comment) => ({
+            id: comment._id,
+            user: comment.user.username,
+            profilePicture: comment.user.profilePicture,
+            text: comment.text,
+            replyTo: comment.replyTo,
+            timestamp: comment.createdAt,
+            likeCount: comment.likes ? comment.likes.length : 0,
+            isLiked: comment.likes
+              ? comment.likes.includes(req.user.id)
+              : false,
+          })),
+          category: post.category,
+          memeTexts: post.memeTexts,
+          captionPlacement: post.captionPlacement,
+          taggedUsers: formattedTaggedUsers,
+          user: {
+            id: post.user._id,
+            username: post.user.username,
+            profilePicture: post.user.profilePicture,
+          },
+        };
+      }),
     });
   } catch (error) {
     res.status(500).json({
@@ -431,6 +448,10 @@ exports.getPost = async (req, res) => {
       .populate({
         path: "comments.user",
         select: "username profilePicture",
+      })
+      .populate({
+        path: "taggedUsers",
+        select: "_id username",
       });
 
     if (!post) {
@@ -439,6 +460,14 @@ exports.getPost = async (req, res) => {
         message: "Post not found",
       });
     }
+
+    // Format tagged users
+    const formattedTaggedUsers = post.taggedUsers
+      ? post.taggedUsers.map((user) => ({
+          id: user._id,
+          username: user.username,
+        }))
+      : [];
 
     res.status(200).json({
       success: true,
@@ -462,6 +491,7 @@ exports.getPost = async (req, res) => {
         category: post.category,
         memeTexts: post.memeTexts,
         captionPlacement: post.captionPlacement,
+        taggedUsers: formattedTaggedUsers,
         user: {
           id: post.user._id,
           username: post.user.username,
@@ -598,6 +628,9 @@ exports.deletePost = async (req, res) => {
       });
     }
 
+    // Delete all notifications related to this post
+    await Notification.deleteMany({ post: post._id });
+
     await post.deleteOne();
 
     res.status(200).json({
@@ -713,20 +746,35 @@ exports.addComment = async (req, res) => {
 
     // Create notifications for mentioned users
     if (mentions && mentions.length > 0) {
+      console.log("Processing mentions in comment:", mentions);
+
       // Find users by username
       const mentionedUsers = await User.find({ username: { $in: mentions } });
+      console.log(
+        "Found mentioned users:",
+        mentionedUsers.map((u) => u.username)
+      );
 
       // Create notifications for each mentioned user
       for (const mentionedUser of mentionedUsers) {
-        // Don't notify yourself
-        if (mentionedUser._id.toString() === req.user.id) continue;
+        // Don't notify yourself or the post owner (already notified about the comment)
+        if (
+          mentionedUser._id.toString() === req.user.id ||
+          mentionedUser._id.toString() === post.user.toString()
+        ) {
+          console.log(
+            `Skipping notification for ${mentionedUser.username} (self or post owner)`
+          );
+          continue;
+        }
 
+        console.log(`Creating tag notification for ${mentionedUser.username}`);
         await Notification.create({
           recipient: mentionedUser._id,
           sender: req.user.id,
           type: "tag",
           post: post._id,
-          comment: newComment._id,
+          comment: newComment._id, // Include the comment ID to differentiate from post tags
           content: text,
         });
       }
@@ -754,6 +802,7 @@ exports.addComment = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Error adding comment:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -1043,16 +1092,23 @@ exports.deleteComment = async (req, res) => {
         );
 
         // Remove the comment
-        mostRecentComment.deleteOne();
+        post.comments.pull(mostRecentComment._id);
 
         // Also remove any replies to this comment
-        post.comments = post.comments.filter(
+        const repliesToRemove = post.comments.filter(
           (c) =>
-            !c.replyTo ||
-            c.replyTo.toString() !== mostRecentComment._id.toString()
+            c.replyTo &&
+            c.replyTo.toString() === mostRecentComment._id.toString()
         );
 
+        for (const reply of repliesToRemove) {
+          post.comments.pull(reply._id);
+        }
+
         await post.save();
+
+        // Delete any notifications related to this comment
+        await Notification.deleteMany({ comment: mostRecentComment._id });
 
         return res.status(200).json({
           success: true,
@@ -1079,16 +1135,30 @@ exports.deleteComment = async (req, res) => {
       });
     }
 
-    // Remove the comment
-    comment.deleteOne();
-
-    // Also remove any replies to this comment
-    post.comments = post.comments.filter(
-      (c) => !c.replyTo || c.replyTo.toString() !== req.params.commentId
+    // Find all replies to this comment
+    const repliesToRemove = post.comments.filter(
+      (c) => c.replyTo && c.replyTo.toString() === req.params.commentId
     );
 
+    // Remove the comment
+    post.comments.pull(req.params.commentId);
+
+    // Remove all replies
+    for (const reply of repliesToRemove) {
+      post.comments.pull(reply._id);
+    }
+
     await post.save();
-    console.log("Comment deleted successfully");
+
+    // Delete any notifications related to this comment
+    await Notification.deleteMany({ comment: req.params.commentId });
+
+    // Also delete notifications for replies
+    for (const reply of repliesToRemove) {
+      await Notification.deleteMany({ comment: reply._id });
+    }
+
+    console.log("Comment and related replies deleted successfully");
 
     res.status(200).json({
       success: true,
