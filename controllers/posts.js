@@ -492,47 +492,57 @@ exports.updatePost = async (req, res) => {
     if (captionPlacement !== undefined)
       updateFields.captionPlacement = captionPlacement;
 
+    // Update the post with the new fields
     post = await Post.findByIdAndUpdate(req.params.id, updateFields, {
       new: true,
       runValidators: true,
-    }).populate({
-      path: "user",
-      select: "username profilePicture",
-    });
+    })
+      .populate({
+        path: "user",
+        select: "username profilePicture",
+      })
+      .populate({
+        path: "comments.user",
+        select: "username profilePicture",
+      });
+
+    // Format the response to match the expected structure
+    const formattedPost = {
+      id: post._id,
+      text: post.text,
+      image: post.image,
+      createdAt: post.createdAt,
+      likes: post.likeCount,
+      isLiked: post.likes.includes(req.user.id),
+      comments: post.comments.map((comment) => ({
+        id: comment._id,
+        user: comment.user.username,
+        profilePicture: comment.user.profilePicture,
+        text: comment.text,
+        replyTo: comment.replyTo,
+        timestamp: comment.createdAt,
+        likeCount: comment.likes ? comment.likes.length : 0,
+        isLiked: comment.likes ? comment.likes.includes(req.user.id) : false,
+      })),
+      category: post.category,
+      memeTexts: post.memeTexts,
+      captionPlacement: post.captionPlacement,
+      user: {
+        id: post.user._id,
+        username: post.user.username,
+        profilePicture: post.user.profilePicture,
+      },
+    };
 
     res.status(200).json({
       success: true,
-      data: {
-        id: post._id,
-        text: post.text,
-        image: post.image,
-        createdAt: post.createdAt,
-        likes: post.likeCount,
-        isLiked: post.likes.includes(req.user.id),
-        comments: post.comments.map((comment) => ({
-          id: comment._id,
-          user: comment.user.username,
-          profilePicture: comment.user.profilePicture,
-          text: comment.text,
-          replyTo: comment.replyTo,
-          timestamp: comment.createdAt,
-          likeCount: comment.likes ? comment.likes.length : 0,
-          isLiked: comment.likes ? comment.likes.includes(req.user.id) : false,
-        })),
-        category: post.category,
-        memeTexts: post.memeTexts,
-        captionPlacement: post.captionPlacement,
-        user: {
-          id: post.user._id,
-          username: post.user.username,
-          profilePicture: post.user.profilePicture,
-        },
-      },
+      data: formattedPost,
     });
   } catch (error) {
+    console.error("Error updating post:", error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || "An error occurred while updating the post",
     });
   }
 };
