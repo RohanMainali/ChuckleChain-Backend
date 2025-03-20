@@ -272,7 +272,7 @@ exports.deleteAccount = async (req, res) => {
         { session }
       );
 
-      // 4. Delete notifications related to the user
+      // 4. Delete notifications related to the user (both sent and received)
       await Notification.deleteMany(
         { $or: [{ recipient: userId }, { sender: userId }] },
         { session }
@@ -292,20 +292,43 @@ exports.deleteAccount = async (req, res) => {
       // Delete all conversations where the user is a participant
       await Conversation.deleteMany({ participants: userId }, { session });
 
-      // 7. Remove user from followers/following lists
+      // 7. Remove user from followers/following lists AND update follower/following counts
+      // Find users who this user follows
+      const followingUsers = await User.find(
+        { followers: userId },
+        { _id: 1 },
+        { session }
+      );
+
+      // Remove the user from their followers list
       await User.updateMany(
         { followers: userId },
         { $pull: { followers: userId } },
         { session }
       );
 
+      // Find users who follow this user
+      const followerUsers = await User.find(
+        { following: userId },
+        { _id: 1 },
+        { session }
+      );
+
+      // Remove the user from their following list
       await User.updateMany(
         { following: userId },
         { $pull: { following: userId } },
         { session }
       );
 
-      // 8. Finally, delete the user
+      // 8. Remove user from tagged posts
+      await Post.updateMany(
+        { taggedUsers: userId },
+        { $pull: { taggedUsers: userId } },
+        { session }
+      );
+
+      // 9. Finally, delete the user
       await User.findByIdAndDelete(userId, { session });
 
       // Commit the transaction
