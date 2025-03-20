@@ -7,7 +7,8 @@ const Notification = require("../models/Notification");
 // @access  Private
 exports.createPost = async (req, res) => {
   try {
-    const { text, image, category, memeTexts, captionPlacement } = req.body;
+    const { text, image, category, memeTexts, captionPlacement, taggedUsers } =
+      req.body;
 
     // Validate required fields
     if (!text || !image) {
@@ -25,6 +26,7 @@ exports.createPost = async (req, res) => {
       category,
       memeTexts,
       captionPlacement,
+      taggedUsers,
     });
 
     // Extract hashtags from text
@@ -36,6 +38,22 @@ exports.createPost = async (req, res) => {
       await post.save();
     }
 
+    // Create notifications for tagged users
+    if (taggedUsers && taggedUsers.length > 0) {
+      for (const userId of taggedUsers) {
+        // Don't notify yourself
+        if (userId === req.user.id) continue;
+
+        await Notification.create({
+          recipient: userId,
+          sender: req.user.id,
+          type: "tag",
+          post: post._id,
+          content: text,
+        });
+      }
+    }
+
     // Update user streak
     const { updateUserStreak } = require("./users");
     await updateUserStreak(req.user.id);
@@ -45,6 +63,16 @@ exports.createPost = async (req, res) => {
       path: "user",
       select: "username profilePicture",
     });
+
+    // Populate tagged users data
+    let formattedTaggedUsers = [];
+    if (taggedUsers && taggedUsers.length > 0) {
+      const taggedUsersData = await User.find({ _id: { $in: taggedUsers } });
+      formattedTaggedUsers = taggedUsersData.map((user) => ({
+        id: user._id,
+        username: user.username,
+      }));
+    }
 
     res.status(201).json({
       success: true,
@@ -59,6 +87,7 @@ exports.createPost = async (req, res) => {
         category: post.category,
         memeTexts: post.memeTexts,
         captionPlacement: post.captionPlacement,
+        taggedUsers: formattedTaggedUsers,
         user: {
           id: post.user._id,
           username: post.user.username,
@@ -648,7 +677,7 @@ exports.addComment = async (req, res) => {
       });
     }
 
-    const { text } = req.body;
+    const { text, mentions } = req.body;
 
     if (!text) {
       return res.status(400).json({
@@ -680,6 +709,27 @@ exports.addComment = async (req, res) => {
         comment: newComment._id,
         content: text,
       });
+    }
+
+    // Create notifications for mentioned users
+    if (mentions && mentions.length > 0) {
+      // Find users by username
+      const mentionedUsers = await User.find({ username: { $in: mentions } });
+
+      // Create notifications for each mentioned user
+      for (const mentionedUser of mentionedUsers) {
+        // Don't notify yourself
+        if (mentionedUser._id.toString() === req.user.id) continue;
+
+        await Notification.create({
+          recipient: mentionedUser._id,
+          sender: req.user.id,
+          type: "tag",
+          post: post._id,
+          comment: newComment._id,
+          content: text,
+        });
+      }
     }
 
     // Populate user data for the comment
@@ -749,6 +799,18 @@ exports.likeComment = async (req, res) => {
         comment.likes = [];
       }
       comment.likes.push(req.user.id);
+
+      // Create notification for comment owner if it's not the current user
+      if (comment.user.toString() !== req.user.id) {
+        await Notification.create({
+          recipient: comment.user,
+          sender: req.user.id,
+          type: "comment_like",
+          post: post._id,
+          comment: comment._id,
+          content: comment.text,
+        });
+      }
     }
 
     await post.save();
@@ -779,6 +841,7 @@ exports.replyToComment = async (req, res) => {
       commentId: req.params.commentId,
       userId: req.user.id,
       text: req.body.text,
+      mentions: req.body.mentions,
     });
 
     const post = await Post.findById(req.params.id);
@@ -800,7 +863,7 @@ exports.replyToComment = async (req, res) => {
       });
     }
 
-    const { text } = req.body;
+    const { text, mentions } = req.body;
 
     if (!text) {
       return res.status(400).json({
@@ -845,7 +908,7 @@ exports.replyToComment = async (req, res) => {
           await Notification.create({
             recipient: parentComment.user,
             sender: req.user.id,
-            type: "comment",
+            type: "comment_reply",
             post: post._id,
             comment: newReply._id,
             content: text,
@@ -853,6 +916,31 @@ exports.replyToComment = async (req, res) => {
         } catch (notifError) {
           console.error("Error creating notification:", notifError);
           // Continue even if notification creation fails
+        }
+      }
+
+      // Create notifications for mentioned users
+      if (mentions && mentions.length > 0) {
+        // Find users by username
+        const mentionedUsers = await User.find({ username: { $in: mentions } });
+
+        // Create notifications for each mentioned user
+        for (const mentionedUser of mentionedUsers) {
+          // Don't notify yourself or the parent comment owner (already notified)
+          if (
+            mentionedUser._id.toString() === req.user.id ||
+            mentionedUser._id.toString() === parentComment.user.toString()
+          )
+            continue;
+
+          await Notification.create({
+            recipient: mentionedUser._id,
+            sender: req.user.id,
+            type: "tag",
+            post: post._id,
+            comment: newReply._id,
+            content: text,
+          });
         }
       }
 
