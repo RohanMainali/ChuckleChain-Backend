@@ -1,5 +1,6 @@
 const Notification = require("../models/Notification");
 const User = require("../models/User");
+const Post = require("../models/Post");
 
 // @desc    Get all notifications for the current user
 // @route   GET /api/notifications
@@ -206,6 +207,58 @@ exports.getUnreadCount = async (req, res) => {
       success: true,
       data: { count },
     });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// Add a new function to clean up orphaned notifications
+exports.cleanupOrphanedNotifications = async () => {
+  try {
+    console.log("Starting cleanup of orphaned notifications");
+
+    // Find notifications with non-existent recipients
+    const notifications = await Notification.find({});
+    let deleteCount = 0;
+
+    for (const notification of notifications) {
+      // Check if recipient exists
+      const recipientExists = await User.exists({
+        _id: notification.recipient,
+      });
+
+      // Check if sender exists
+      const senderExists = await User.exists({ _id: notification.sender });
+
+      // Check if associated post exists (if there is one)
+      let postExists = true;
+      if (notification.post) {
+        postExists = await Post.exists({ _id: notification.post });
+      }
+
+      // Delete notification if any related entity doesn't exist
+      if (!recipientExists || !senderExists || !postExists) {
+        await Notification.findByIdAndDelete(notification._id);
+        deleteCount++;
+      }
+    }
+
+    console.log(`Cleaned up ${deleteCount} orphaned notifications`);
+    return { success: true, deletedCount: deleteCount };
+  } catch (error) {
+    console.error("Error cleaning up orphaned notifications:", error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Add a scheduled cleanup route that can be called periodically
+exports.runCleanup = async (req, res) => {
+  try {
+    const result = await this.cleanupOrphanedNotifications();
+    res.status(200).json(result);
   } catch (error) {
     res.status(500).json({
       success: false,
