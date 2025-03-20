@@ -1,3 +1,4 @@
+// Update the Post schema to include taggedUsers
 const mongoose = require("mongoose");
 
 const MemeTextSchema = new mongoose.Schema({
@@ -96,6 +97,12 @@ const PostSchema = new mongoose.Schema(
     ],
     comments: [CommentSchema],
     hashtags: [String],
+    taggedUsers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     createdAt: {
       type: Date,
       default: Date.now,
