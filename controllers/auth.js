@@ -136,7 +136,7 @@ const sendTokenResponse = (user, statusCode, res) => {
 
   res.status(statusCode).cookie("token", token, options).json({
     success: true,
-    token,
+    token, // Include token in response body for localStorage
     data: user,
   })
 }
